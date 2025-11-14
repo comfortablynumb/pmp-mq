@@ -4,7 +4,7 @@ use pmp_mq_core::{
     Backend, Client, CreateSubscriptionRequest, CreateTopicRequest, DeliveryAttempt,
     DeliveryStatus, Event, MqError, RegisterClientRequest, Result, Subscription, Topic,
 };
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 pub struct PostgresBackend {
@@ -49,8 +49,17 @@ impl Backend for PostgresBackend {
     }
 
     async fn get_topic(&self, name: &str) -> Result<Option<Topic>> {
-        let topic = sqlx::query_as::<_, (Uuid, String, Option<String>, chrono::DateTime<Utc>, serde_json::Value)>(
-            "SELECT id, name, description, created_at, config FROM topics WHERE name = $1"
+        let topic = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                Option<String>,
+                chrono::DateTime<Utc>,
+                serde_json::Value,
+            ),
+        >(
+            "SELECT id, name, description, created_at, config FROM topics WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(&self.pool)
@@ -68,8 +77,17 @@ impl Backend for PostgresBackend {
     }
 
     async fn list_topics(&self) -> Result<Vec<Topic>> {
-        let topics = sqlx::query_as::<_, (Uuid, String, Option<String>, chrono::DateTime<Utc>, serde_json::Value)>(
-            "SELECT id, name, description, created_at, config FROM topics ORDER BY created_at DESC"
+        let topics = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                Option<String>,
+                chrono::DateTime<Utc>,
+                serde_json::Value,
+            ),
+        >(
+            "SELECT id, name, description, created_at, config FROM topics ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await
@@ -103,7 +121,10 @@ impl Backend for PostgresBackend {
 
     // ===== Subscription Management =====
 
-    async fn create_subscription(&self, request: CreateSubscriptionRequest) -> Result<Subscription> {
+    async fn create_subscription(
+        &self,
+        request: CreateSubscriptionRequest,
+    ) -> Result<Subscription> {
         // Verify topic exists
         if self.get_topic(&request.topic_name).await?.is_none() {
             return Err(MqError::TopicNotFound(request.topic_name));
@@ -205,7 +226,11 @@ impl Backend for PostgresBackend {
 
     async fn register_client(&self, request: RegisterClientRequest) -> Result<Client> {
         // Verify subscription exists
-        if self.get_subscription(&request.subscription_name).await?.is_none() {
+        if self
+            .get_subscription(&request.subscription_name)
+            .await?
+            .is_none()
+        {
             return Err(MqError::SubscriptionNotFound(request.subscription_name));
         }
 
@@ -297,7 +322,9 @@ impl Backend for PostgresBackend {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| MqError::DatabaseError(format!("Failed to update client status: {}", e)))?;
+            .map_err(|e| {
+                MqError::DatabaseError(format!("Failed to update client status: {}", e))
+            })?;
 
         if result.rows_affected() == 0 {
             return Err(MqError::ClientNotFound(id.to_string()));
@@ -385,7 +412,9 @@ impl Backend for PostgresBackend {
             .bind(&event.metadata)
             .execute(&self.pool)
             .await
-            .map_err(|e| MqError::DatabaseError(format!("Failed to store event metadata: {}", e)))?;
+            .map_err(|e| {
+                MqError::DatabaseError(format!("Failed to store event metadata: {}", e))
+            })?;
         }
 
         Ok(event)
@@ -394,7 +423,17 @@ impl Backend for PostgresBackend {
     // ===== Event Consumption =====
 
     async fn poll_events(&self, subscription_name: &str, batch_size: usize) -> Result<Vec<Event>> {
-        let events = sqlx::query_as::<_, (Uuid, String, serde_json::Value, serde_json::Value, chrono::DateTime<Utc>, Option<String>)>(
+        let events = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                serde_json::Value,
+                serde_json::Value,
+                chrono::DateTime<Utc>,
+                Option<String>,
+            ),
+        >(
             r#"
             SELECT DISTINCT e.id, e.topic, e.payload, e.metadata, e.created_at, e.event_type
             FROM (
@@ -414,14 +453,16 @@ impl Backend for PostgresBackend {
         .await
         .map_err(|e| MqError::DatabaseError(format!("Failed to poll events: {}", e)))?
         .into_iter()
-        .map(|(id, topic, payload, metadata, created_at, event_type)| Event {
-            id,
-            topic,
-            payload,
-            metadata,
-            created_at,
-            event_type,
-        })
+        .map(
+            |(id, topic, payload, metadata, created_at, event_type)| Event {
+                id,
+                topic,
+                payload,
+                metadata,
+                created_at,
+                event_type,
+            },
+        )
         .collect();
 
         Ok(events)
@@ -590,26 +631,42 @@ impl Backend for PostgresBackend {
 
         let deliveries = results
             .into_iter()
-            .map(|(event_id, topic, payload, metadata, created_at, event_type, client_id, name, webhook_url, subscription_name, auth_headers, client_created_at, active)| {
-                let event = Event {
-                    id: event_id,
+            .map(
+                |(
+                    event_id,
                     topic,
                     payload,
                     metadata,
                     created_at,
                     event_type,
-                };
-                let client = Client {
-                    id: client_id,
+                    client_id,
                     name,
                     webhook_url,
                     subscription_name,
-                    auth_headers: serde_json::from_value(auth_headers).unwrap_or_default(),
-                    created_at: client_created_at,
+                    auth_headers,
+                    client_created_at,
                     active,
-                };
-                (event, client)
-            })
+                )| {
+                    let event = Event {
+                        id: event_id,
+                        topic,
+                        payload,
+                        metadata,
+                        created_at,
+                        event_type,
+                    };
+                    let client = Client {
+                        id: client_id,
+                        name,
+                        webhook_url,
+                        subscription_name,
+                        auth_headers: serde_json::from_value(auth_headers).unwrap_or_default(),
+                        created_at: client_created_at,
+                        active,
+                    };
+                    (event, client)
+                },
+            )
             .collect();
 
         Ok(deliveries)
@@ -623,7 +680,7 @@ impl Backend for PostgresBackend {
     ) -> Result<()> {
         let status_str = format!("{:?}", status);
         sqlx::query(
-            "UPDATE event_deliveries SET status = $1 WHERE event_id = $2 AND client_id = $3"
+            "UPDATE event_deliveries SET status = $1 WHERE event_id = $2 AND client_id = $3",
         )
         .bind(status_str)
         .bind(event_id)
@@ -633,6 +690,274 @@ impl Backend for PostgresBackend {
         .map_err(|e| MqError::DatabaseError(format!("Failed to update delivery status: {}", e)))?;
 
         Ok(())
+    }
+
+    // ===== Dead Letter Queue Management =====
+
+    async fn list_dead_letter_events(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<(Event, Client, DeliveryAttempt)>> {
+        let mut query = r#"
+            SELECT
+                -- Event from events or event_metadata (UNION query)
+                COALESCE(e.id, em.id) as event_id,
+                COALESCE(e.topic, em.topic) as topic,
+                COALESCE(e.payload, em.payload) as payload,
+                COALESCE(e.metadata, em.metadata) as metadata,
+                COALESCE(e.created_at, em.created_at) as event_created_at,
+                COALESCE(e.event_type, em.event_type) as event_type,
+                -- Client
+                c.id as client_id,
+                c.name,
+                c.webhook_url,
+                c.subscription_name,
+                c.auth_headers,
+                c.created_at as client_created_at,
+                c.active,
+                -- Delivery info
+                ed.attempt_count,
+                ed.last_attempt_at,
+                ed.created_at as delivery_created_at,
+                -- Last attempt
+                da.id as attempt_id,
+                da.attempt_number,
+                da.status as attempt_status,
+                da.attempted_at,
+                da.completed_at,
+                da.error_message,
+                da.http_status_code
+            FROM event_deliveries ed
+            LEFT JOIN events e ON ed.event_id = e.id
+            LEFT JOIN event_metadata em ON ed.event_id = em.id
+            INNER JOIN clients c ON ed.client_id = c.id
+            LEFT JOIN LATERAL (
+                SELECT * FROM delivery_attempts
+                WHERE event_id = ed.event_id AND client_id = ed.client_id
+                ORDER BY attempt_number DESC
+                LIMIT 1
+            ) da ON true
+            WHERE ed.status = 'DeadLetter'
+        "#
+        .to_string();
+
+        if let Some(sub_name) = subscription_name {
+            query.push_str(&format!(" AND ed.subscription_name = '{}'", sub_name));
+        }
+
+        query.push_str(" ORDER BY ed.created_at DESC LIMIT $1 OFFSET $2");
+
+        let rows = sqlx::query(&query)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| MqError::DatabaseError(format!("Failed to list DLQ events: {}", e)))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let event = Event {
+                id: row.try_get("event_id").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get event_id: {}", e))
+                })?,
+                topic: row
+                    .try_get("topic")
+                    .map_err(|e| MqError::DatabaseError(format!("Failed to get topic: {}", e)))?,
+                payload: row
+                    .try_get("payload")
+                    .map_err(|e| MqError::DatabaseError(format!("Failed to get payload: {}", e)))?,
+                metadata: row.try_get("metadata").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get metadata: {}", e))
+                })?,
+                created_at: row.try_get("event_created_at").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get created_at: {}", e))
+                })?,
+                event_type: row.try_get("event_type").ok(),
+            };
+
+            let client = Client {
+                id: row.try_get("client_id").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get client_id: {}", e))
+                })?,
+                name: row
+                    .try_get("name")
+                    .map_err(|e| MqError::DatabaseError(format!("Failed to get name: {}", e)))?,
+                webhook_url: row.try_get("webhook_url").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get webhook_url: {}", e))
+                })?,
+                subscription_name: row.try_get("subscription_name").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get subscription_name: {}", e))
+                })?,
+                auth_headers: row
+                    .try_get::<serde_json::Value, _>("auth_headers")
+                    .ok()
+                    .and_then(|v| serde_json::from_value(v).ok())
+                    .unwrap_or_default(),
+                created_at: row.try_get("client_created_at").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get client_created_at: {}", e))
+                })?,
+                active: row
+                    .try_get("active")
+                    .map_err(|e| MqError::DatabaseError(format!("Failed to get active: {}", e)))?,
+            };
+
+            let attempt = DeliveryAttempt {
+                id: row.try_get("attempt_id").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get attempt_id: {}", e))
+                })?,
+                event_id: event.id,
+                client_id: client.id,
+                attempt_number: row.try_get("attempt_number").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get attempt_number: {}", e))
+                })?,
+                status: row
+                    .try_get::<String, _>("attempt_status")
+                    .ok()
+                    .and_then(|s| match s.as_str() {
+                        "Success" => Some(DeliveryStatus::Success),
+                        "Failed" => Some(DeliveryStatus::Failed),
+                        "Pending" => Some(DeliveryStatus::Pending),
+                        "InProgress" => Some(DeliveryStatus::InProgress),
+                        "DeadLetter" => Some(DeliveryStatus::DeadLetter),
+                        _ => None,
+                    })
+                    .unwrap_or(DeliveryStatus::Failed),
+                attempted_at: row.try_get("attempted_at").map_err(|e| {
+                    MqError::DatabaseError(format!("Failed to get attempted_at: {}", e))
+                })?,
+                completed_at: row.try_get("completed_at").ok(),
+                error_message: row.try_get("error_message").ok(),
+                http_status_code: row
+                    .try_get::<i16, _>("http_status_code")
+                    .ok()
+                    .map(|code| code as u16),
+            };
+
+            results.push((event, client, attempt));
+        }
+
+        Ok(results)
+    }
+
+    async fn get_dead_letter_count(&self, subscription_name: Option<&str>) -> Result<i64> {
+        let mut query =
+            "SELECT COUNT(*) FROM event_deliveries WHERE status = 'DeadLetter'".to_string();
+
+        if let Some(sub_name) = subscription_name {
+            query.push_str(&format!(" AND subscription_name = '{}'", sub_name));
+        }
+
+        let count: i64 = sqlx::query_scalar(&query)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| MqError::DatabaseError(format!("Failed to count DLQ events: {}", e)))?;
+
+        Ok(count)
+    }
+
+    async fn retry_dead_letter_event(&self, event_id: Uuid, client_id: Uuid) -> Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE event_deliveries
+            SET status = 'Pending',
+                attempt_count = 0,
+                next_retry_at = NOW(),
+                last_attempt_at = NULL
+            WHERE event_id = $1 AND client_id = $2 AND status = 'DeadLetter'
+            "#,
+        )
+        .bind(event_id)
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| MqError::DatabaseError(format!("Failed to retry DLQ event: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(MqError::DatabaseError(format!(
+                "Dead letter event not found: event_id={}, client_id={}",
+                event_id, client_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn delete_dead_letter_event(&self, event_id: Uuid, client_id: Uuid) -> Result<()> {
+        let result = sqlx::query(
+            "DELETE FROM event_deliveries WHERE event_id = $1 AND client_id = $2 AND status = 'DeadLetter'"
+        )
+        .bind(event_id)
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| MqError::DatabaseError(format!("Failed to delete DLQ event: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(MqError::DatabaseError(format!(
+                "Dead letter event not found: event_id={}, client_id={}",
+                event_id, client_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn bulk_retry_dead_letters(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+    ) -> Result<usize> {
+        let mut query = r#"
+            UPDATE event_deliveries
+            SET status = 'Pending',
+                attempt_count = 0,
+                next_retry_at = NOW(),
+                last_attempt_at = NULL
+            WHERE id IN (
+                SELECT id FROM event_deliveries
+                WHERE status = 'DeadLetter'
+        "#
+        .to_string();
+
+        if let Some(sub_name) = subscription_name {
+            query.push_str(&format!(" AND subscription_name = '{}'", sub_name));
+        }
+
+        query.push_str(&format!(" LIMIT {} )", limit));
+
+        let result = sqlx::query(&query).execute(&self.pool).await.map_err(|e| {
+            MqError::DatabaseError(format!("Failed to bulk retry DLQ events: {}", e))
+        })?;
+
+        Ok(result.rows_affected() as usize)
+    }
+
+    async fn bulk_delete_dead_letters(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+    ) -> Result<usize> {
+        let mut query = r#"
+            DELETE FROM event_deliveries
+            WHERE id IN (
+                SELECT id FROM event_deliveries
+                WHERE status = 'DeadLetter'
+        "#
+        .to_string();
+
+        if let Some(sub_name) = subscription_name {
+            query.push_str(&format!(" AND subscription_name = '{}'", sub_name));
+        }
+
+        query.push_str(&format!(" LIMIT {} )", limit));
+
+        let result = sqlx::query(&query).execute(&self.pool).await.map_err(|e| {
+            MqError::DatabaseError(format!("Failed to bulk delete DLQ events: {}", e))
+        })?;
+
+        Ok(result.rows_affected() as usize)
     }
 
     // ===== Health Check =====

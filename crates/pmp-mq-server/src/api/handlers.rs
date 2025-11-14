@@ -5,8 +5,7 @@ use axum::{
     Json,
 };
 use pmp_mq_core::{
-    Backend,
-    CreateSubscriptionRequest, CreateTopicRequest, Event, MqError, PublishRequest,
+    Backend, CreateSubscriptionRequest, CreateTopicRequest, Event, MqError, PublishRequest,
     PublishResponse, RegisterClientRequest,
 };
 use serde::Deserialize;
@@ -117,9 +116,7 @@ pub async fn list_subscriptions(
     State(backend): State<Arc<dyn Backend>>,
     Query(query): Query<ListSubscriptionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let subscriptions = backend
-        .list_subscriptions(query.topic.as_deref())
-        .await?;
+    let subscriptions = backend.list_subscriptions(query.topic.as_deref()).await?;
     Ok(Json(subscriptions))
 }
 
@@ -161,9 +158,7 @@ pub async fn list_clients(
     State(backend): State<Arc<dyn Backend>>,
     Query(query): Query<ListClientsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let clients = backend
-        .list_clients(query.subscription.as_deref())
-        .await?;
+    let clients = backend.list_clients(query.subscription.as_deref()).await?;
     Ok(Json(clients))
 }
 

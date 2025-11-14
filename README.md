@@ -10,9 +10,14 @@
 - 🔄 **Retry Logic**: Configurable retry with exponential backoff
 - 📊 **Delivery Tracking**: Track delivery attempts and status
 - ⚡ **Batch Publishing**: Publish multiple events in a single request
-- 📈 **Metrics API**: Monitor system health and performance
+- 🔍 **Event Filtering**: JSONPath and regex-based event filtering on subscriptions
+- 📈 **Prometheus Metrics**: Comprehensive metrics exporter for monitoring
+- 🔬 **Dead Letter Queue**: Full DLQ management with retry and deletion
+- 🎨 **Admin Dashboard**: Web-based dashboard for monitoring and management
 - 💾 **Configurable Storage**: Opt-in event storage (disabled by default for performance)
 - 🐳 **Docker Support**: Ready-to-use Docker Compose setup
+- 🧪 **Integration Tests**: Comprehensive test suite for all features
+- ⚙️ **CI/CD Ready**: GitHub Actions workflows for testing and deployment
 - 🏗️ **Modular Architecture**: Clean separation between core, backends, and server
 
 ## Architecture
@@ -428,6 +433,164 @@ Your webhook endpoint should:
 - After max attempts, events move to "DeadLetter" status
 - Configurable per subscription via `max_delivery_attempts`
 
+## Event Filtering
+
+Subscriptions support advanced event filtering using JSONPath expressions and logical operators:
+
+### Filter Syntax
+
+```bash
+# Event type filter
+"event_type == 'user.created'"
+
+# Topic pattern (regex)
+"topic matches 'user\\..*'"
+
+# JSONPath filter
+"$.payload.action == 'signup'"
+
+# Numeric comparison
+"$.payload.age > 18"
+
+# String contains
+"$.payload.email contains '@example.com'"
+
+# Regex match
+"$.payload.username matches '^admin.*'"
+
+# Logical operators
+"event_type == 'user.created' AND $.payload.verified == true"
+"$.payload.role == 'admin' OR $.payload.role == 'moderator'"
+```
+
+### Creating a Subscription with Filter
+
+```bash
+curl -X POST http://localhost:8080/api/v1/subscriptions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "verified-signups",
+    "topic_name": "user.events",
+    "filter": "event_type == '\''user.created'\'' AND $.action == '\''signup'\'' AND $.verified == true"
+  }'
+```
+
+Only events matching the filter will be delivered to clients on this subscription.
+
+## Prometheus Metrics
+
+PMP-MQ exports Prometheus-compatible metrics for monitoring:
+
+### Available Metrics
+
+- `events_published_total` - Total events published by topic
+- `events_delivered_total` - Total successful deliveries by subscription
+- `events_filtered_total` - Events filtered out by subscription
+- `delivery_attempts_total` - Total delivery attempts by status
+- `delivery_latency_seconds` - Delivery latency histogram
+- `delivery_failures_total` - Failed deliveries by reason
+- `pending_deliveries` - Current pending deliveries gauge
+- `dead_letter_queue_size` - Current DLQ size gauge
+- `topics_total`, `subscriptions_total`, `clients_total` - Resource counts
+- `http_requests_total`, `http_request_duration_seconds` - HTTP metrics
+
+### Endpoint
+
+```bash
+curl http://localhost:8080/api/v1/metrics/prometheus
+```
+
+### Prometheus Configuration
+
+```yaml
+scrape_configs:
+  - job_name: 'pmp-mq'
+    static_configs:
+      - targets: ['pmp-mq-server:8080']
+    metrics_path: '/api/v1/metrics/prometheus'
+    scrape_interval: 15s
+```
+
+## Dead Letter Queue Management
+
+Manage failed deliveries through DLQ endpoints:
+
+### List DLQ Events
+
+```bash
+curl "http://localhost:8080/api/v1/dlq/events?limit=50&offset=0&subscription_name=my-subscription"
+```
+
+### Retry Single Event
+
+```bash
+curl -X POST "http://localhost:8080/api/v1/dlq/events/{event_id}/{client_id}/retry"
+```
+
+### Delete Single Event
+
+```bash
+curl -X DELETE "http://localhost:8080/api/v1/dlq/events/{event_id}/{client_id}"
+```
+
+### Bulk Retry
+
+```bash
+curl -X POST http://localhost:8080/api/v1/dlq/bulk-retry \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 100, "subscription_name": "my-subscription"}'
+```
+
+### Bulk Delete
+
+```bash
+curl -X POST http://localhost:8080/api/v1/dlq/bulk-delete \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 100}'
+```
+
+## Admin Dashboard
+
+A simple web-based admin dashboard is available in the `dashboard/` directory.
+
+### Features
+- Real-time metrics with auto-refresh
+- Topic, subscription, and client management
+- DLQ inspection and management
+- Event publishing interface
+
+### Running the Dashboard
+
+```bash
+# Serve with Python
+cd dashboard
+python3 -m http.server 8081
+
+# Or with Node.js
+cd dashboard
+npx serve -p 8081
+```
+
+Then open http://localhost:8081 in your browser.
+
+See [`dashboard/README.md`](dashboard/README.md) for full documentation.
+
+## Webhook Receiver Examples
+
+Example webhook receivers are provided in the `examples/webhook-receivers/` directory:
+
+- **Python (FastAPI)**: `examples/webhook-receivers/python_fastapi.py`
+- **Node.js (Express)**: `examples/webhook-receivers/nodejs_express.js`
+
+Both examples demonstrate:
+- Idempotent event processing
+- Event type handling
+- Error handling with proper HTTP status codes
+- Event storage and listing
+- Health check endpoints
+
+See [`examples/webhook-receivers/README.md`](examples/webhook-receivers/README.md) for usage.
+
 ## Development
 
 ### Project Structure
@@ -438,9 +601,17 @@ pmp-mq/
 │   ├── pmp-mq-core/        # Core types and abstractions
 │   ├── pmp-mq-backends/    # Backend implementations
 │   └── pmp-mq-server/      # HTTP server and delivery worker
+├── tests/
+│   └── integration/        # Integration tests
+├── examples/
+│   └── webhook-receivers/  # Example webhook receivers (Python, Node.js)
+├── dashboard/              # Web-based admin dashboard
+├── .github/
+│   └── workflows/          # CI/CD workflows
 ├── Cargo.toml              # Workspace configuration
 ├── docker-compose.yml      # Docker setup
-└── README.md
+├── CHANGELOG.md            # Version history and changelog
+└── README.md               # This file
 ```
 
 ### Running Tests

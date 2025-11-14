@@ -22,17 +22,15 @@ pub struct KafkaBackend {
 }
 
 impl KafkaBackend {
-    pub async fn new(
-        kafka_config: &ClientConfig,
-        metadata_pool: PgPool,
-    ) -> Result<Self> {
-        let producer: FutureProducer = kafka_config
-            .create()
-            .map_err(|e| MqError::BackendError(format!("Failed to create Kafka producer: {}", e)))?;
+    pub async fn new(kafka_config: &ClientConfig, metadata_pool: PgPool) -> Result<Self> {
+        let producer: FutureProducer = kafka_config.create().map_err(|e| {
+            MqError::BackendError(format!("Failed to create Kafka producer: {}", e))
+        })?;
 
-        let admin_client: AdminClient<DefaultClientContext> = kafka_config
-            .create()
-            .map_err(|e| MqError::BackendError(format!("Failed to create Kafka admin client: {}", e)))?;
+        let admin_client: AdminClient<DefaultClientContext> =
+            kafka_config.create().map_err(|e| {
+                MqError::BackendError(format!("Failed to create Kafka admin client: {}", e))
+            })?;
 
         let metadata_backend = PostgresBackend::new(metadata_pool);
 
@@ -60,9 +58,7 @@ impl Backend for KafkaBackend {
         self.admin_client
             .create_topics(&[new_topic], &opts)
             .await
-            .map_err(|e| {
-                MqError::BackendError(format!("Failed to create Kafka topic: {:?}", e))
-            })?;
+            .map_err(|e| MqError::BackendError(format!("Failed to create Kafka topic: {:?}", e)))?;
 
         Ok(topic)
     }
@@ -81,9 +77,7 @@ impl Backend for KafkaBackend {
         self.admin_client
             .delete_topics(&[name], &opts)
             .await
-            .map_err(|e| {
-                MqError::BackendError(format!("Failed to delete Kafka topic: {:?}", e))
-            })?;
+            .map_err(|e| MqError::BackendError(format!("Failed to delete Kafka topic: {:?}", e)))?;
 
         // Then delete from metadata store
         self.metadata_backend.delete_topic(name).await
@@ -92,7 +86,10 @@ impl Backend for KafkaBackend {
     // ===== Subscription Management =====
     // Delegated to metadata backend
 
-    async fn create_subscription(&self, request: CreateSubscriptionRequest) -> Result<Subscription> {
+    async fn create_subscription(
+        &self,
+        request: CreateSubscriptionRequest,
+    ) -> Result<Subscription> {
         self.metadata_backend.create_subscription(request).await
     }
 
@@ -136,16 +133,13 @@ impl Backend for KafkaBackend {
 
     async fn publish_event(&self, event: Event) -> Result<Event> {
         // Serialize event to JSON
-        let payload = serde_json::to_string(&event)
-            .map_err(|e| MqError::SerializationError(e))?;
+        let payload = serde_json::to_string(&event).map_err(|e| MqError::SerializationError(e))?;
 
         // Create key string with proper lifetime
         let key = event.id.to_string();
 
         // Publish to Kafka
-        let record = FutureRecord::to(&event.topic)
-            .key(&key)
-            .payload(&payload);
+        let record = FutureRecord::to(&event.topic).key(&key).payload(&payload);
 
         self.producer
             .send(record, std::time::Duration::from_secs(5))
@@ -165,11 +159,15 @@ impl Backend for KafkaBackend {
     // In a production system, you might want to consume directly from Kafka
 
     async fn poll_events(&self, subscription_name: &str, batch_size: usize) -> Result<Vec<Event>> {
-        self.metadata_backend.poll_events(subscription_name, batch_size).await
+        self.metadata_backend
+            .poll_events(subscription_name, batch_size)
+            .await
     }
 
     async fn acknowledge_event(&self, event_id: Uuid, client_id: Uuid) -> Result<()> {
-        self.metadata_backend.acknowledge_event(event_id, client_id).await
+        self.metadata_backend
+            .acknowledge_event(event_id, client_id)
+            .await
     }
 
     async fn nack_event(
@@ -178,7 +176,9 @@ impl Backend for KafkaBackend {
         client_id: Uuid,
         error_message: String,
     ) -> Result<()> {
-        self.metadata_backend.nack_event(event_id, client_id, error_message).await
+        self.metadata_backend
+            .nack_event(event_id, client_id, error_message)
+            .await
     }
 
     // ===== Delivery Tracking =====
@@ -197,7 +197,9 @@ impl Backend for KafkaBackend {
         subscription_name: &str,
         limit: usize,
     ) -> Result<Vec<(Event, Client)>> {
-        self.metadata_backend.get_pending_deliveries(subscription_name, limit).await
+        self.metadata_backend
+            .get_pending_deliveries(subscription_name, limit)
+            .await
     }
 
     async fn update_delivery_status(
@@ -206,7 +208,61 @@ impl Backend for KafkaBackend {
         client_id: Uuid,
         status: DeliveryStatus,
     ) -> Result<()> {
-        self.metadata_backend.update_delivery_status(event_id, client_id, status).await
+        self.metadata_backend
+            .update_delivery_status(event_id, client_id, status)
+            .await
+    }
+
+    // ===== Dead Letter Queue Management =====
+    // Delegated to metadata backend
+
+    async fn list_dead_letter_events(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<(Event, Client, DeliveryAttempt)>> {
+        self.metadata_backend
+            .list_dead_letter_events(subscription_name, limit, offset)
+            .await
+    }
+
+    async fn get_dead_letter_count(&self, subscription_name: Option<&str>) -> Result<i64> {
+        self.metadata_backend
+            .get_dead_letter_count(subscription_name)
+            .await
+    }
+
+    async fn retry_dead_letter_event(&self, event_id: Uuid, client_id: Uuid) -> Result<()> {
+        self.metadata_backend
+            .retry_dead_letter_event(event_id, client_id)
+            .await
+    }
+
+    async fn delete_dead_letter_event(&self, event_id: Uuid, client_id: Uuid) -> Result<()> {
+        self.metadata_backend
+            .delete_dead_letter_event(event_id, client_id)
+            .await
+    }
+
+    async fn bulk_retry_dead_letters(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+    ) -> Result<usize> {
+        self.metadata_backend
+            .bulk_retry_dead_letters(subscription_name, limit)
+            .await
+    }
+
+    async fn bulk_delete_dead_letters(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+    ) -> Result<usize> {
+        self.metadata_backend
+            .bulk_delete_dead_letters(subscription_name, limit)
+            .await
     }
 
     // ===== Health Check =====

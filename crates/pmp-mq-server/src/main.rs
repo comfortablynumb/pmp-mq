@@ -1,6 +1,7 @@
 mod api;
 mod config;
 mod delivery;
+mod metrics;
 
 use anyhow::Result;
 use config::Config;
@@ -20,6 +21,10 @@ async fn main() -> Result<()> {
 
     info!("Starting PMP Message Queue Server");
 
+    // Initialize metrics
+    metrics::init_metrics();
+    info!("Prometheus metrics initialized");
+
     // Load configuration
     let config = Config::load()?;
     info!("Configuration loaded: backend={}", config.backend_type);
@@ -33,26 +38,27 @@ async fn main() -> Result<()> {
         }
         "kafka" => {
             info!("Initializing Kafka backend");
-            let metadata_pool =
-                pmp_mq_backends::postgres::create_pool(&pmp_mq_backends::postgres::PostgresConfig {
+            let metadata_pool = pmp_mq_backends::postgres::create_pool(
+                &pmp_mq_backends::postgres::PostgresConfig {
                     database_url: config.kafka.postgres_url.clone(),
                     max_connections: config.kafka.max_connections,
-                })
-                .await?;
-
-            let kafka_config = pmp_mq_backends::kafka::create_producer_config(&config.kafka.brokers);
-            Arc::new(
-                pmp_mq_backends::KafkaBackend::new(&kafka_config, metadata_pool).await?,
+                },
             )
+            .await?;
+
+            let kafka_config =
+                pmp_mq_backends::kafka::create_producer_config(&config.kafka.brokers);
+            Arc::new(pmp_mq_backends::KafkaBackend::new(&kafka_config, metadata_pool).await?)
         }
         "sqs" => {
             info!("Initializing SQS backend");
-            let metadata_pool =
-                pmp_mq_backends::postgres::create_pool(&pmp_mq_backends::postgres::PostgresConfig {
+            let metadata_pool = pmp_mq_backends::postgres::create_pool(
+                &pmp_mq_backends::postgres::PostgresConfig {
                     database_url: config.sqs.postgres_url.clone(),
                     max_connections: config.sqs.max_connections,
-                })
-                .await?;
+                },
+            )
+            .await?;
 
             let sqs_client = pmp_mq_backends::sqs::create_sqs_client(&config.sqs.region).await;
             Arc::new(pmp_mq_backends::SqsBackend::new(

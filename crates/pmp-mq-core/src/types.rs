@@ -291,3 +291,27 @@ pub struct TopicMetrics {
     pub successful_deliveries: i64,
     pub failed_deliveries: i64,
 }
+
+/// Dead letter queue event with details
+#[derive(Debug, Serialize)]
+pub struct DeadLetterEvent {
+    pub event: Event,
+    pub client: Client,
+    pub last_attempt: DeliveryAttempt,
+    pub total_attempts: i32,
+}
+
+/// Response for listing DLQ events
+#[derive(Debug, Serialize)]
+pub struct ListDeadLetterResponse {
+    pub total: i64,
+    pub events: Vec<DeadLetterEvent>,
+    pub offset: usize,
+    pub limit: usize,
+}
+
+/// Response for bulk DLQ operations
+#[derive(Debug, Serialize)]
+pub struct BulkDeadLetterResponse {
+    pub affected_count: usize,
+}

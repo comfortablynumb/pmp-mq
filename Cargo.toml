@@ -4,6 +4,7 @@ members = [
     "crates/pmp-mq-core",
     "crates/pmp-mq-backends",
     "crates/pmp-mq-server",
+    "tests/integration",
 ]
 
 [workspace.package]
@@ -48,3 +49,11 @@ config = "0.14"
 
 # Async utilities
 futures = "0.3"
+
+# Filtering
+jsonpath_lib = "0.3"
+regex = "1.10"
+
+# Metrics
+prometheus = "0.13"
+lazy_static = "1.4"

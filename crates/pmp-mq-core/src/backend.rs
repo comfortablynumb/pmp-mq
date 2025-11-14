@@ -25,7 +25,8 @@ pub trait Backend: Send + Sync {
     // ===== Subscription Management =====
 
     /// Create a new subscription
-    async fn create_subscription(&self, request: CreateSubscriptionRequest) -> Result<Subscription>;
+    async fn create_subscription(&self, request: CreateSubscriptionRequest)
+        -> Result<Subscription>;
 
     /// Get a subscription by name
     async fn get_subscription(&self, name: &str) -> Result<Option<Subscription>>;
@@ -97,6 +98,39 @@ pub trait Backend: Send + Sync {
         client_id: Uuid,
         status: DeliveryStatus,
     ) -> Result<()>;
+
+    // ===== Dead Letter Queue Management =====
+
+    /// List events in dead letter queue
+    async fn list_dead_letter_events(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<(Event, Client, DeliveryAttempt)>>;
+
+    /// Get count of dead letter events
+    async fn get_dead_letter_count(&self, subscription_name: Option<&str>) -> Result<i64>;
+
+    /// Retry a dead letter event (move back to pending)
+    async fn retry_dead_letter_event(&self, event_id: Uuid, client_id: Uuid) -> Result<()>;
+
+    /// Delete a dead letter event
+    async fn delete_dead_letter_event(&self, event_id: Uuid, client_id: Uuid) -> Result<()>;
+
+    /// Bulk retry dead letter events
+    async fn bulk_retry_dead_letters(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+    ) -> Result<usize>;
+
+    /// Bulk delete dead letter events
+    async fn bulk_delete_dead_letters(
+        &self,
+        subscription_name: Option<&str>,
+        limit: usize,
+    ) -> Result<usize>;
 
     // ===== Health Check =====
 

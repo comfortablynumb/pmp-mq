@@ -1,5 +1,5 @@
 mod backend;
-mod migrations;
+pub mod migrations;
 
 pub use backend::PostgresBackend;
 

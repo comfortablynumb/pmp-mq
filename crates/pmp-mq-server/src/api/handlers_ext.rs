@@ -1,11 +1,19 @@
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use pmp_mq_core::{
-    Backend, BatchPublishError, BatchPublishRequest, BatchPublishResponse, Event,
-    PublishResponse, SystemMetrics,
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
 };
+use pmp_mq_core::{
+    Backend, BatchPublishError, BatchPublishRequest, BatchPublishResponse, BulkDeadLetterResponse,
+    DeadLetterEvent, Event, ListDeadLetterResponse, PublishResponse, SystemMetrics,
+};
+use serde::Deserialize;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use super::handlers::ApiError;
+use crate::metrics;
 
 // ===== Batch Publishing =====
 
@@ -79,4 +87,141 @@ pub async fn get_system_metrics(
     };
 
     Ok(Json(metrics))
+}
+
+// ===== Prometheus Metrics =====
+
+pub async fn prometheus_metrics(State(backend): State<Arc<dyn Backend>>) -> impl IntoResponse {
+    // Update resource metrics before gathering
+    metrics::update_resource_metrics(&backend).await;
+
+    // Return Prometheus-formatted metrics
+    (
+        StatusCode::OK,
+        [("Content-Type", "text/plain; version=0.0.4; charset=utf-8")],
+        metrics::gather_metrics(),
+    )
+}
+
+// ===== Dead Letter Queue Management =====
+
+#[derive(Debug, Deserialize)]
+pub struct ListDlqQuery {
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+    pub subscription_name: Option<String>,
+}
+
+fn default_limit() -> usize {
+    50
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkDlqRequest {
+    #[serde(default = "default_bulk_limit")]
+    pub limit: usize,
+    pub subscription_name: Option<String>,
+}
+
+fn default_bulk_limit() -> usize {
+    100
+}
+
+/// List dead letter queue events
+pub async fn list_dead_letter_events(
+    State(backend): State<Arc<dyn Backend>>,
+    Query(query): Query<ListDlqQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let subscription_name = query.subscription_name.as_deref();
+
+    // Get total count
+    let total = backend.get_dead_letter_count(subscription_name).await?;
+
+    // Get events
+    let dlq_events = backend
+        .list_dead_letter_events(subscription_name, query.limit, query.offset)
+        .await?;
+
+    let events: Vec<DeadLetterEvent> = dlq_events
+        .into_iter()
+        .map(|(event, client, last_attempt)| DeadLetterEvent {
+            total_attempts: last_attempt.attempt_number,
+            event,
+            client,
+            last_attempt,
+        })
+        .collect();
+
+    let response = ListDeadLetterResponse {
+        total,
+        events,
+        offset: query.offset,
+        limit: query.limit,
+    };
+
+    Ok(Json(response))
+}
+
+/// Retry a specific dead letter event
+pub async fn retry_dead_letter_event(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((event_id, client_id)): Path<(Uuid, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    backend.retry_dead_letter_event(event_id, client_id).await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "success",
+            "message": "Event moved back to pending queue"
+        })),
+    ))
+}
+
+/// Delete a specific dead letter event
+pub async fn delete_dead_letter_event(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((event_id, client_id)): Path<(Uuid, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    backend
+        .delete_dead_letter_event(event_id, client_id)
+        .await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "success",
+            "message": "Dead letter event deleted"
+        })),
+    ))
+}
+
+/// Bulk retry dead letter events
+pub async fn bulk_retry_dead_letters(
+    State(backend): State<Arc<dyn Backend>>,
+    Json(request): Json<BulkDlqRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let affected = backend
+        .bulk_retry_dead_letters(request.subscription_name.as_deref(), request.limit)
+        .await?;
+
+    Ok(Json(BulkDeadLetterResponse {
+        affected_count: affected,
+    }))
+}
+
+/// Bulk delete dead letter events
+pub async fn bulk_delete_dead_letters(
+    State(backend): State<Arc<dyn Backend>>,
+    Json(request): Json<BulkDlqRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let affected = backend
+        .bulk_delete_dead_letters(request.subscription_name.as_deref(), request.limit)
+        .await?;
+
+    Ok(Json(BulkDeadLetterResponse {
+        affected_count: affected,
+    }))
 }

@@ -1,5 +1,5 @@
 use chrono::Utc;
-use pmp_mq_core::{Backend, DeliveryAttempt, DeliveryStatus};
+use pmp_mq_core::{Backend, DeliveryAttempt, DeliveryStatus, FilterExpression};
 use reqwest::Client;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,6 +38,22 @@ async fn process_deliveries(
     for subscription in subscriptions {
         debug!("Processing subscription: {}", subscription.name);
 
+        // Parse subscription filter
+        let filter = if let Some(ref filter_str) = subscription.filter {
+            match FilterExpression::parse(filter_str) {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    warn!(
+                        "Invalid filter for subscription {}: {}",
+                        subscription.name, e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // Get pending deliveries for this subscription
         let pending = backend
             .get_pending_deliveries(&subscription.name, config.batch_size)
@@ -47,16 +63,36 @@ async fn process_deliveries(
             continue;
         }
 
+        // Filter events if filter is defined
+        let filtered_pending: Vec<_> = if let Some(ref filter_expr) = filter {
+            pending
+                .into_iter()
+                .filter(|(event, _)| {
+                    let matches = filter_expr.matches(event);
+                    if !matches {
+                        debug!("Event {} filtered out by subscription filter", event.id);
+                    }
+                    matches
+                })
+                .collect()
+        } else {
+            pending
+        };
+
+        if filtered_pending.is_empty() {
+            continue;
+        }
+
         info!(
-            "Found {} pending deliveries for subscription {}",
-            pending.len(),
+            "Found {} pending deliveries for subscription {} (after filtering)",
+            filtered_pending.len(),
             subscription.name
         );
 
         // Process deliveries concurrently with a limit
         let mut tasks = Vec::new();
 
-        for (event, client) in pending {
+        for (event, client) in filtered_pending {
             if tasks.len() >= config.max_concurrent_deliveries {
                 // Wait for some tasks to complete
                 let (result, _index, remaining) = futures::future::select_all(tasks).await;
@@ -112,10 +148,7 @@ async fn deliver_event(
 
     // Get current attempt number
     let attempts = match backend.get_delivery_attempts(event.id).await {
-        Ok(attempts) => attempts
-            .iter()
-            .filter(|a| a.client_id == client.id)
-            .count() as i32,
+        Ok(attempts) => attempts.iter().filter(|a| a.client_id == client.id).count() as i32,
         Err(e) => {
             error!("Failed to get delivery attempts: {}", e);
             0
@@ -187,11 +220,7 @@ async fn deliver_event(
                     event.id, client.id, status_code
                 );
                 if let Err(e) = backend
-                    .nack_event(
-                        event.id,
-                        client.id,
-                        format!("HTTP status: {}", status_code),
-                    )
+                    .nack_event(event.id, client.id, format!("HTTP status: {}", status_code))
                     .await
                 {
                     error!("Failed to nack event: {}", e);
@@ -222,10 +251,7 @@ async fn deliver_event(
             }
 
             // Update delivery status
-            if let Err(e) = backend
-                .nack_event(event.id, client.id, e.to_string())
-                .await
-            {
+            if let Err(e) = backend.nack_event(event.id, client.id, e.to_string()).await {
                 error!("Failed to nack event: {}", e);
             }
         }

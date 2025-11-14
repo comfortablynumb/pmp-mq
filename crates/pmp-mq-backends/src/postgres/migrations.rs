@@ -174,12 +174,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<()> {
             info!("Applying migration {}", version);
 
             // Execute migration
-            sqlx::query(migration)
-                .execute(pool)
-                .await
-                .map_err(|e| {
-                    MqError::DatabaseError(format!("Failed to apply migration {}: {}", version, e))
-                })?;
+            sqlx::query(migration).execute(pool).await.map_err(|e| {
+                MqError::DatabaseError(format!("Failed to apply migration {}: {}", version, e))
+            })?;
 
             // Record migration
             sqlx::query("INSERT INTO _migrations (version) VALUES ($1)")

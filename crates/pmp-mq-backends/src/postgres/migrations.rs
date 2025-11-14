@@ -123,6 +123,25 @@ const MIGRATIONS: &[&str] = &[
         FOR EACH ROW
         EXECUTE FUNCTION create_event_deliveries();
     "#,
+    // Migration 8: Create event_metadata table for lightweight event tracking
+    r#"
+    CREATE TABLE IF NOT EXISTS event_metadata (
+        id UUID PRIMARY KEY,
+        topic VARCHAR(255) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        event_type VARCHAR(255),
+        payload JSONB NOT NULL,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
+    CREATE INDEX IF NOT EXISTS idx_event_metadata_topic ON event_metadata(topic);
+    CREATE INDEX IF NOT EXISTS idx_event_metadata_created_at ON event_metadata(created_at);
+
+    -- Remove foreign key constraint on event_deliveries.event_id since events might not be in events table
+    ALTER TABLE event_deliveries DROP CONSTRAINT IF EXISTS event_deliveries_event_id_fkey;
+
+    -- Remove foreign key constraint on delivery_attempts.event_id
+    ALTER TABLE delivery_attempts DROP CONSTRAINT IF EXISTS delivery_attempts_event_id_fkey;
+    "#,
 ];
 
 pub async fn run_migrations(pool: &PgPool) -> Result<()> {

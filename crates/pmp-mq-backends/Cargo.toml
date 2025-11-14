@@ -24,7 +24,12 @@ sqlx = { workspace = true, optional = true }
 # Kafka backend
 rdkafka = { workspace = true, optional = true }
 
+# AWS SQS backend
+aws-config = { workspace = true, optional = true }
+aws-sdk-sqs = { workspace = true, optional = true }
+
 [features]
-default = ["postgres", "kafka"]
+default = ["postgres", "kafka", "sqs"]
 postgres = ["dep:sqlx"]
 kafka = ["dep:rdkafka"]
+sqs = ["dep:aws-config", "dep:aws-sdk-sqs"]

@@ -1,4 +1,5 @@
 mod handlers;
+mod handlers_ext;
 mod routes;
 
 use axum::Router;

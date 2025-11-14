@@ -5,7 +5,8 @@ use axum::{
     Json,
 };
 use pmp_mq_core::{
-    Backend, CreateSubscriptionRequest, CreateTopicRequest, Event, MqError, PublishRequest,
+    Backend,
+    CreateSubscriptionRequest, CreateTopicRequest, Event, MqError, PublishRequest,
     PublishResponse, RegisterClientRequest,
 };
 use serde::Deserialize;

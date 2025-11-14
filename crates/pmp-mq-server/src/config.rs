@@ -17,6 +17,9 @@ pub struct Config {
     pub kafka: pmp_mq_backends::kafka::KafkaConfig,
 
     #[serde(default)]
+    pub sqs: pmp_mq_backends::sqs::SqsConfig,
+
+    #[serde(default)]
     pub delivery: DeliveryConfig,
 }
 

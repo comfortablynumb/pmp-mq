@@ -45,9 +45,25 @@ async fn main() -> Result<()> {
                 pmp_mq_backends::KafkaBackend::new(&kafka_config, metadata_pool).await?,
             )
         }
+        "sqs" => {
+            info!("Initializing SQS backend");
+            let metadata_pool =
+                pmp_mq_backends::postgres::create_pool(&pmp_mq_backends::postgres::PostgresConfig {
+                    database_url: config.sqs.postgres_url.clone(),
+                    max_connections: config.sqs.max_connections,
+                })
+                .await?;
+
+            let sqs_client = pmp_mq_backends::sqs::create_sqs_client(&config.sqs.region).await;
+            Arc::new(pmp_mq_backends::SqsBackend::new(
+                sqs_client,
+                config.sqs.queue_prefix.clone(),
+                metadata_pool,
+            ))
+        }
         _ => {
             return Err(anyhow::anyhow!(
-                "Invalid backend type: {}",
+                "Invalid backend type: {}. Valid options: postgres, kafka, sqs",
                 config.backend_type
             ))
         }

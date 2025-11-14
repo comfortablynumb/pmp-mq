@@ -4,12 +4,14 @@ use axum::{
 };
 use std::sync::Arc;
 
-use super::handlers;
+use super::{handlers, handlers_ext};
 
 pub fn api_routes() -> Router<Arc<dyn pmp_mq_core::Backend>> {
     Router::new()
         // Health check
         .route("/health", get(handlers::health_check))
+        // Metrics
+        .route("/metrics", get(handlers_ext::get_system_metrics))
         // Topics
         .route("/topics", post(handlers::create_topic))
         .route("/topics", get(handlers::list_topics))
@@ -31,5 +33,6 @@ pub fn api_routes() -> Router<Arc<dyn pmp_mq_core::Backend>> {
         )
         // Events
         .route("/events/publish", post(handlers::publish_event))
+        .route("/events/batch", post(handlers_ext::batch_publish_events))
         .route("/events/:id/attempts", get(handlers::get_delivery_attempts))
 }

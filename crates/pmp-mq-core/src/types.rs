@@ -70,7 +70,7 @@ pub struct Topic {
     pub config: TopicConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicConfig {
     /// Retention period in seconds (None = infinite)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -79,6 +79,25 @@ pub struct TopicConfig {
     /// Maximum message size in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_message_size: Option<usize>,
+
+    /// Whether to store event data in the database
+    /// Default: false (events are only tracked for delivery, not stored)
+    #[serde(default = "default_store_events")]
+    pub store_events: bool,
+}
+
+fn default_store_events() -> bool {
+    false
+}
+
+impl Default for TopicConfig {
+    fn default() -> Self {
+        Self {
+            retention_seconds: None,
+            max_message_size: None,
+            store_events: default_store_events(),
+        }
+    }
 }
 
 /// Represents a subscription to a topic
@@ -224,4 +243,51 @@ pub struct PublishResponse {
     pub event_id: Uuid,
     pub topic: String,
     pub published_at: DateTime<Utc>,
+}
+
+/// Request to publish multiple events in batch
+#[derive(Debug, Deserialize)]
+pub struct BatchPublishRequest {
+    pub events: Vec<PublishRequest>,
+}
+
+/// Response for batch event publication
+#[derive(Debug, Serialize)]
+pub struct BatchPublishResponse {
+    pub published: Vec<PublishResponse>,
+    pub failed: Vec<BatchPublishError>,
+    pub total: usize,
+    pub success_count: usize,
+    pub failure_count: usize,
+}
+
+/// Error for individual event in batch
+#[derive(Debug, Serialize)]
+pub struct BatchPublishError {
+    pub index: usize,
+    pub topic: String,
+    pub error: String,
+}
+
+/// System metrics
+#[derive(Debug, Serialize)]
+pub struct SystemMetrics {
+    pub topics_count: i64,
+    pub subscriptions_count: i64,
+    pub clients_count: i64,
+    pub active_clients_count: i64,
+    pub pending_deliveries: i64,
+    pub failed_deliveries: i64,
+    pub dead_letter_count: i64,
+}
+
+/// Topic metrics
+#[derive(Debug, Serialize)]
+pub struct TopicMetrics {
+    pub topic_name: String,
+    pub total_events: i64,
+    pub total_deliveries: i64,
+    pub pending_deliveries: i64,
+    pub successful_deliveries: i64,
+    pub failed_deliveries: i64,
 }

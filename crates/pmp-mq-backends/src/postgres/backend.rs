@@ -323,21 +323,70 @@ impl Backend for PostgresBackend {
     // ===== Event Publishing =====
 
     async fn publish_event(&self, event: Event) -> Result<Event> {
-        sqlx::query(
-            r#"
-            INSERT INTO events (id, topic, payload, metadata, created_at, event_type)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-        )
-        .bind(&event.id)
-        .bind(&event.topic)
-        .bind(&event.payload)
-        .bind(&event.metadata)
-        .bind(&event.created_at)
-        .bind(&event.event_type)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| MqError::DatabaseError(format!("Failed to publish event: {}", e)))?;
+        // Check if topic has event storage enabled
+        let topic = self
+            .get_topic(&event.topic)
+            .await?
+            .ok_or_else(|| MqError::TopicNotFound(event.topic.clone()))?;
+
+        // Only store event if configured to do so
+        if topic.config.store_events {
+            sqlx::query(
+                r#"
+                INSERT INTO events (id, topic, payload, metadata, created_at, event_type)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                "#,
+            )
+            .bind(&event.id)
+            .bind(&event.topic)
+            .bind(&event.payload)
+            .bind(&event.metadata)
+            .bind(&event.created_at)
+            .bind(&event.event_type)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| MqError::DatabaseError(format!("Failed to publish event: {}", e)))?;
+        } else {
+            // Even if we don't store the event, we still create delivery records
+            // via a manual insertion instead of the trigger
+            sqlx::query(
+                r#"
+                INSERT INTO event_deliveries (event_id, client_id, subscription_name, status, created_at)
+                SELECT
+                    $1,
+                    c.id,
+                    s.name,
+                    'Pending',
+                    NOW()
+                FROM subscriptions s
+                INNER JOIN clients c ON c.subscription_name = s.name
+                WHERE s.topic_name = $2
+                  AND c.active = true
+                "#,
+            )
+            .bind(&event.id)
+            .bind(&event.topic)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| MqError::DatabaseError(format!("Failed to create deliveries: {}", e)))?;
+
+            // Store minimal event info for delivery tracking
+            sqlx::query(
+                r#"
+                INSERT INTO event_metadata (id, topic, created_at, event_type, payload, metadata)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                "#,
+            )
+            .bind(&event.id)
+            .bind(&event.topic)
+            .bind(&event.created_at)
+            .bind(&event.event_type)
+            .bind(&event.payload)
+            .bind(&event.metadata)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| MqError::DatabaseError(format!("Failed to store event metadata: {}", e)))?;
+        }
 
         Ok(event)
     }
@@ -348,7 +397,11 @@ impl Backend for PostgresBackend {
         let events = sqlx::query_as::<_, (Uuid, String, serde_json::Value, serde_json::Value, chrono::DateTime<Utc>, Option<String>)>(
             r#"
             SELECT DISTINCT e.id, e.topic, e.payload, e.metadata, e.created_at, e.event_type
-            FROM events e
+            FROM (
+                SELECT id, topic, payload, metadata, created_at, event_type FROM events
+                UNION ALL
+                SELECT id, topic, payload, metadata, created_at, event_type FROM event_metadata
+            ) e
             INNER JOIN subscriptions s ON s.topic_name = e.topic
             WHERE s.name = $1
             ORDER BY e.created_at ASC
@@ -515,7 +568,11 @@ impl Backend for PostgresBackend {
                 e.id, e.topic, e.payload, e.metadata, e.created_at, e.event_type,
                 c.id, c.name, c.webhook_url, c.subscription_name, c.auth_headers, c.created_at, c.active
             FROM event_deliveries ed
-            INNER JOIN events e ON e.id = ed.event_id
+            INNER JOIN (
+                SELECT id, topic, payload, metadata, created_at, event_type FROM events
+                UNION ALL
+                SELECT id, topic, payload, metadata, created_at, event_type FROM event_metadata
+            ) e ON e.id = ed.event_id
             INNER JOIN clients c ON c.id = ed.client_id
             WHERE ed.subscription_name = $1
               AND ed.status IN ('Pending', 'Failed')

@@ -1,40 +1,45 @@
 # PMP Message Queue
 
-**Poor Man's Platform Message Queue** - A simple, HTTP-based message queue abstraction that allows you to use different backends (Kafka, PostgreSQL) for pub/sub messaging with webhook delivery.
+**Poor Man's Platform Message Queue** - A simple, HTTP-based message queue abstraction that allows you to use different backends (Kafka, PostgreSQL, AWS SQS) for pub/sub messaging with webhook delivery.
 
 ## Features
 
-- 🚀 **Multiple Backends**: Support for PostgreSQL and Kafka
+- 🚀 **Multiple Backends**: Support for PostgreSQL, Kafka, and AWS SQS
 - 📡 **HTTP API**: REST API for publishing and subscribing to events
 - 🔔 **Webhook Delivery**: Automatic HTTP webhook delivery to registered clients
 - 🔄 **Retry Logic**: Configurable retry with exponential backoff
 - 📊 **Delivery Tracking**: Track delivery attempts and status
+- ⚡ **Batch Publishing**: Publish multiple events in a single request
+- 📈 **Metrics API**: Monitor system health and performance
+- 💾 **Configurable Storage**: Opt-in event storage (disabled by default for performance)
 - 🐳 **Docker Support**: Ready-to-use Docker Compose setup
 - 🏗️ **Modular Architecture**: Clean separation between core, backends, and server
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   HTTP API (Axum)                   │
-│  POST /events/publish   GET /topics  GET /clients  │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│              Backend Abstraction (Trait)            │
-└──────────────┬─────────────────┬────────────────────┘
-               │                 │
-      ┌────────▼────────┐   ┌───▼──────────┐
-      │   PostgreSQL    │   │    Kafka     │
-      │     Backend     │   │   Backend    │
-      └─────────────────┘   └──────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│           Webhook Delivery Worker                   │
-│  Polls pending events and delivers to webhooks     │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                   HTTP API (Axum)                        │
+│  POST /events/publish   POST /events/batch               │
+│  GET /topics   GET /metrics   GET /clients               │
+└────────────────────────┬─────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│              Backend Abstraction (Trait)                 │
+└──────┬──────────────────┬────────────────┬───────────────┘
+       │                  │                │
+┌──────▼────────┐  ┌──────▼──────┐  ┌─────▼──────┐
+│  PostgreSQL   │  │    Kafka    │  │  AWS SQS   │
+│   Backend     │  │   Backend   │  │  Backend   │
+└───────────────┘  └─────────────┘  └────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────────┐
+│           Webhook Delivery Worker                        │
+│  Polls pending events and delivers via HTTP webhooks    │
+│  Configurable: batch size, concurrency, retry logic     │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
@@ -152,7 +157,86 @@ The system will automatically deliver this event to all registered clients via t
 curl http://localhost:8080/api/v1/topics
 ```
 
-### 6. Get Delivery Attempts
+### 6. Batch Publish Events (NEW!)
+
+Publish multiple events in a single request for better performance:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/events/batch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "events": [
+      {
+        "topic": "user.events",
+        "event_type": "user.signup",
+        "payload": {"user_id": "123", "email": "user1@example.com"}
+      },
+      {
+        "topic": "user.events",
+        "event_type": "user.login",
+        "payload": {"user_id": "456", "email": "user2@example.com"}
+      }
+    ]
+  }'
+```
+
+Response includes success/failure breakdown:
+```json
+{
+  "total": 2,
+  "success_count": 2,
+  "failure_count": 0,
+  "published": [
+    {"event_id": "...", "topic": "user.events", "published_at": "..."},
+    {"event_id": "...", "topic": "user.events", "published_at": "..."}
+  ],
+  "failed": []
+}
+```
+
+### 7. Get System Metrics (NEW!)
+
+Monitor system health and performance:
+
+```bash
+curl http://localhost:8080/api/v1/metrics
+```
+
+Response:
+```json
+{
+  "topics_count": 5,
+  "subscriptions_count": 8,
+  "clients_count": 12,
+  "active_clients_count": 10,
+  "pending_deliveries": 150,
+  "failed_deliveries": 3,
+  "dead_letter_count": 1
+}
+```
+
+### 8. Create Topic with Custom Storage (NEW!)
+
+By default, events are NOT stored in the database for better performance. Enable storage per-topic:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/topics \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "audit.events",
+    "description": "Audit trail - keep all events",
+    "config": {
+      "store_events": true,
+      "retention_seconds": 2592000
+    }
+  }'
+```
+
+**Storage Modes:**
+- `store_events: false` (default) - Only delivery tracking, minimal storage
+- `store_events: true` - Full event storage for replay and audit
+
+### 9. Get Delivery Attempts
 
 ```bash
 curl http://localhost:8080/api/v1/events/{event_id}/attempts
@@ -185,7 +269,12 @@ curl http://localhost:8080/api/v1/events/{event_id}/attempts
 ### Events
 
 - `POST /api/v1/events/publish` - Publish an event
+- `POST /api/v1/events/batch` - Batch publish multiple events (NEW!)
 - `GET /api/v1/events/:id/attempts` - Get delivery attempts for an event
+
+### Metrics
+
+- `GET /api/v1/metrics` - Get system metrics (NEW!)
 
 ### Health
 
@@ -199,7 +288,7 @@ Configuration can be provided via environment variables or a `config.toml` file.
 
 ```bash
 # Backend selection
-BACKEND_TYPE=postgres  # or 'kafka'
+BACKEND_TYPE=postgres  # Options: postgres, kafka, sqs
 
 # PostgreSQL configuration
 DATABASE_URL=postgres://postgres:postgres@localhost/pmp_mq
@@ -207,6 +296,11 @@ DATABASE_URL=postgres://postgres:postgres@localhost/pmp_mq
 # Kafka configuration (when using Kafka backend)
 PMP_MQ__KAFKA__BROKERS=localhost:9092
 PMP_MQ__KAFKA__POSTGRES_URL=postgres://postgres:postgres@localhost/pmp_mq
+
+# AWS SQS configuration (when using SQS backend)
+PMP_MQ__SQS__REGION=us-east-1
+PMP_MQ__SQS__QUEUE_PREFIX=pmp-mq-
+PMP_MQ__SQS__POSTGRES_URL=postgres://postgres:postgres@localhost/pmp_mq
 
 # Server configuration
 HOST=0.0.0.0
@@ -230,6 +324,12 @@ port = 8080
 
 [postgres]
 database_url = "postgres://postgres:postgres@localhost/pmp_mq"
+max_connections = 10
+
+[sqs]
+region = "us-east-1"
+queue_prefix = "pmp-mq-"
+postgres_url = "postgres://postgres:postgres@localhost/pmp_mq"
 max_connections = 10
 
 [kafka]
@@ -274,6 +374,23 @@ request_timeout_secs = 30
 - Higher operational overhead
 
 **Best for:** High-throughput applications, event streaming, microservices architectures.
+
+### AWS SQS Backend (NEW!)
+
+**Pros:**
+- Fully managed service (no infrastructure management)
+- Built-in scalability and availability
+- Pay-per-use pricing model
+- Integrates with AWS ecosystem
+- Simple setup with AWS credentials
+
+**Cons:**
+- Requires AWS account
+- Uses PostgreSQL for metadata storage
+- AWS-specific (vendor lock-in)
+- Additional costs for AWS services
+
+**Best for:** AWS-based applications, teams wanting managed infrastructure, applications needing auto-scaling without operational overhead.
 
 ## Webhook Payload Format
 

@@ -1,0 +1,30 @@
+[package]
+name = "pmp-mq-backends"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pmp-mq-core = { path = "../pmp-mq-core" }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+
+# Database backend
+sqlx = { workspace = true, optional = true }
+
+# Kafka backend
+rdkafka = { workspace = true, optional = true }
+
+[features]
+default = ["postgres", "kafka"]
+postgres = ["dep:sqlx"]
+kafka = ["dep:rdkafka"]

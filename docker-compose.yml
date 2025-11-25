@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: pmp-mq-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pmp_mq
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Zookeeper (required for Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: pmp-mq-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: pmp-mq-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # PMP-MQ Server with Postgres backend
+  pmp-mq-postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pmp-mq-server-postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BACKEND_TYPE: postgres
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/pmp_mq
+      HOST: 0.0.0.0
+      PORT: 8080
+      RUST_LOG: pmp_mq_server=debug,pmp_mq_core=debug,pmp_mq_backends=debug
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # PMP-MQ Server with Kafka backend
+  pmp-mq-kafka:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pmp-mq-server-kafka
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      BACKEND_TYPE: kafka
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/pmp_mq
+      PMP_MQ__KAFKA__BROKERS: kafka:9093
+      PMP_MQ__KAFKA__POSTGRES_URL: postgres://postgres:postgres@postgres:5432/pmp_mq
+      HOST: 0.0.0.0
+      PORT: 8081
+      RUST_LOG: pmp_mq_server=debug,pmp_mq_core=debug,pmp_mq_backends=debug
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PMP-MQ Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7fa;
+            color: #2c3e50;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+
+        .config-section {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .config-section h2 {
+            margin-bottom: 1rem;
+            color: #667eea;
+        }
+
+        .config-section input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid #e1e8ed;
+        }
+
+        .tab {
+            padding: 1rem 2rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            color: #657786;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab:hover {
+            color: #667eea;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .metric-card h3 {
+            font-size: 0.875rem;
+            color: #657786;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .card h2 {
+            margin-bottom: 1.5rem;
+            color: #2c3e50;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #e1e8ed;
+        }
+
+        th {
+            background: #f8fafc;
+            font-weight: 600;
+            color: #475569;
+        }
+
+        tr:hover {
+            background: #f8fafc;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #475569;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .form-group textarea {
+            min-height: 120px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-dead {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #657786;
+        }
+
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+
+        .success {
+            background: #dcfce7;
+            color: #166534;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #94a3b8;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .json-preview {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+            margin-top: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 1rem;
+            }
+
+            .tabs {
+                overflow-x: auto;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>PMP-MQ Admin Dashboard</h1>
+        <p>Monitor and manage your message queue system</p>
+    </div>
+
+    <div class="container">
+        <!-- Configuration -->
+        <div class="config-section">
+            <h2>API Configuration</h2>
+            <div class="form-group">
+                <label for="api-url">API Base URL:</label>
+                <input type="text" id="api-url" value="http://localhost:8080/api/v1" placeholder="http://localhost:8080/api/v1">
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('metrics')">Metrics</button>
+            <button class="tab" onclick="showTab('topics')">Topics</button>
+            <button class="tab" onclick="showTab('subscriptions')">Subscriptions</button>
+            <button class="tab" onclick="showTab('clients')">Clients</button>
+            <button class="tab" onclick="showTab('dlq')">Dead Letter Queue</button>
+            <button class="tab" onclick="showTab('publish')">Publish Event</button>
+        </div>
+
+        <!-- Metrics Tab -->
+        <div id="metrics-tab" class="tab-content active">
+            <div class="metrics-grid" id="metrics-container">
+                <div class="loading">Loading metrics...</div>
+            </div>
+        </div>
+
+        <!-- Topics Tab -->
+        <div id="topics-tab" class="tab-content">
+            <div class="card">
+                <h2>Topics</h2>
+                <button class="btn btn-primary" onclick="refreshTopics()">Refresh</button>
+                <div id="topics-container" class="loading">Loading topics...</div>
+            </div>
+        </div>
+
+        <!-- Subscriptions Tab -->
+        <div id="subscriptions-tab" class="tab-content">
+            <div class="card">
+                <h2>Subscriptions</h2>
+                <button class="btn btn-primary" onclick="refreshSubscriptions()">Refresh</button>
+                <div id="subscriptions-container" class="loading">Loading subscriptions...</div>
+            </div>
+        </div>
+
+        <!-- Clients Tab -->
+        <div id="clients-tab" class="tab-content">
+            <div class="card">
+                <h2>Clients</h2>
+                <button class="btn btn-primary" onclick="refreshClients()">Refresh</button>
+                <div id="clients-container" class="loading">Loading clients...</div>
+            </div>
+        </div>
+
+        <!-- DLQ Tab -->
+        <div id="dlq-tab" class="tab-content">
+            <div class="card">
+                <h2>Dead Letter Queue</h2>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="refreshDLQ()">Refresh</button>
+                    <button class="btn btn-danger" onclick="bulkDeleteDLQ()">Bulk Delete (100)</button>
+                    <button class="btn btn-success" onclick="bulkRetryDLQ()">Bulk Retry (100)</button>
+                </div>
+                <div id="dlq-container" class="loading">Loading DLQ events...</div>
+            </div>
+        </div>
+
+        <!-- Publish Tab -->
+        <div id="publish-tab" class="tab-content">
+            <div class="card">
+                <h2>Publish Event</h2>
+                <form id="publish-form" onsubmit="publishEvent(event)">
+                    <div class="form-group">
+                        <label for="topic">Topic:</label>
+                        <input type="text" id="topic" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="event-type">Event Type (optional):</label>
+                        <input type="text" id="event-type">
+                    </div>
+                    <div class="form-group">
+                        <label for="payload">Payload (JSON):</label>
+                        <textarea id="payload" required>{"message": "Hello World"}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="metadata">Metadata (JSON):</label>
+                        <textarea id="metadata">{}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Publish Event</button>
+                </form>
+                <div id="publish-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
